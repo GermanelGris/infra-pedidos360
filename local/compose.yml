@@ -1,0 +1,59 @@
+# Entorno local completo (sin AWS): MySQL + catalog + orders + BFF.
+# Solo MySQL (para correr los servicios desde el IDE):  docker compose up -d mysql
+# Todo el backend:                                       docker compose up -d --build
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: pedidos360-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  catalog:
+    build: ../../ms-pedidos360-catalog
+    environment:
+      DB_HOST: mysql
+      DB_USER: root
+      DB_PASSWORD: root
+    ports:
+      - "8082:8082"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  orders:
+    build: ../../ms-pedidos360-orders
+    environment:
+      DB_HOST: mysql
+      DB_USER: root
+      DB_PASSWORD: root
+      CATALOG_URL: http://catalog:8082
+    ports:
+      - "8081:8081"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  bff:
+    build: ../../ms-pedidos360-bff
+    environment:
+      TENANT_ID: ${TENANT_ID:-00000000-0000-0000-0000-000000000000}
+      API_CLIENT_ID: ${API_CLIENT_ID:-00000000-0000-0000-0000-000000000000}
+      ORDERS_URL: http://orders:8081
+      CATALOG_URL: http://catalog:8082
+    ports:
+      - "${BFF_PORT:-8080}:8080"   # si el 8080 está ocupado:  BFF_PORT=18080 docker compose up -d
+    depends_on:
+      - orders
+      - catalog
+
+volumes:
+  mysql-data:

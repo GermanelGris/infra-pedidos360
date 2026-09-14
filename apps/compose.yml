@@ -1,0 +1,40 @@
+# Despliegue en EC2 (ec2-apps). La base de datos es Amazon RDS MySQL.
+# Uso:  cp .env.example .env  &&  nano .env  &&  docker compose up -d --build
+services:
+  bff:
+    build: ../../ms-pedidos360-bff
+    container_name: pedidos360-bff
+    ports:
+      - "8080:8080"          # único puerto público: lo consume el API Gateway
+    environment:
+      TENANT_ID: ${TENANT_ID}
+      API_CLIENT_ID: ${API_CLIENT_ID}
+      API_SCOPE: ${API_SCOPE:-Pedidos.ReadWrite}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
+      ORDERS_URL: http://orders:8081
+      CATALOG_URL: http://catalog:8082
+    depends_on:
+      - orders
+      - catalog
+    restart: unless-stopped
+
+  orders:
+    build: ../../ms-pedidos360-orders
+    container_name: pedidos360-orders
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      CATALOG_URL: http://catalog:8082
+    depends_on:
+      - catalog
+    restart: unless-stopped
+
+  catalog:
+    build: ../../ms-pedidos360-catalog
+    container_name: pedidos360-catalog
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+    restart: unless-stopped
