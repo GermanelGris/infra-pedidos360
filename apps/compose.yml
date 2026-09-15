@@ -1,5 +1,8 @@
-# Despliegue en EC2 (ec2-apps). La base de datos es Amazon RDS MySQL.
-# Uso:  cp .env.example .env  &&  nano .env  &&  docker compose up -d --build
+# ec2-apps: microservicios de Pedidos360. La base de datos es Amazon RDS MySQL.
+#
+# EP1 (sin mensajería):   docker compose up -d --build
+# Con mensajería:         MESSAGING_ENABLED=true en .env  y  docker compose --profile messaging up -d --build
+#                         (RabbitMQ y Kafka corren en ec2-mq y ec2-kafka: ver infra/mq e infra/kafka)
 services:
   bff:
     build: ../../ms-pedidos360-bff
@@ -13,6 +16,8 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
       ORDERS_URL: http://orders:8081
       CATALOG_URL: http://catalog:8082
+      REPORT_URL: http://report:8084
+      AUDIT_URL: http://audit:8085
     depends_on:
       - orders
       - catalog
@@ -26,6 +31,11 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       CATALOG_URL: http://catalog:8082
+      MESSAGING_ENABLED: ${MESSAGING_ENABLED:-false}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-localhost}
+      RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
+      KAFKA_BOOTSTRAP: ${KAFKA_BOOTSTRAP:-localhost:9092}
     depends_on:
       - catalog
     restart: unless-stopped
@@ -37,4 +47,37 @@ services:
       DB_HOST: ${DB_HOST}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
+    restart: unless-stopped
+
+  # ---------------- Mensajería (perfil "messaging") ----------------
+  notify:
+    build: ../../ms-pedidos360-notify
+    container_name: pedidos360-notify
+    profiles: ["messaging"]
+    environment:
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
+    restart: unless-stopped
+
+  report:
+    build: ../../ms-pedidos360-report
+    container_name: pedidos360-report
+    profiles: ["messaging"]
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      KAFKA_BOOTSTRAP: ${KAFKA_BOOTSTRAP}
+    restart: unless-stopped
+
+  audit:
+    build: ../../ms-pedidos360-audit
+    container_name: pedidos360-audit
+    profiles: ["messaging"]
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      KAFKA_BOOTSTRAP: ${KAFKA_BOOTSTRAP}
     restart: unless-stopped
