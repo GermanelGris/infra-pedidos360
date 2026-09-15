@@ -1,11 +1,6 @@
-# Entorno local completo (sin AWS).
-#
-# Backend EP1 (sin mensajería):            docker compose up -d --build
-# Solo MySQL (servicios desde el IDE):     docker compose up -d mysql
-# Todo, con RabbitMQ + Kafka + notify/report/audit:
-#   MESSAGING_ENABLED=true docker compose --profile messaging up -d --build
-#
-# Si el 8080 está ocupado:  BFF_PORT=18080 (también se puede dejar en el archivo .env)
+# Entorno local completo (sin AWS): MySQL + catalog + orders + BFF.
+# Solo MySQL (para correr los servicios desde el IDE):  docker compose up -d mysql
+# Todo el backend:                                       docker compose up -d --build
 services:
   mysql:
     image: mysql:8.4
@@ -41,9 +36,6 @@ services:
       DB_USER: root
       DB_PASSWORD: root
       CATALOG_URL: http://catalog:8082
-      MESSAGING_ENABLED: ${MESSAGING_ENABLED:-false}
-      RABBITMQ_HOST: rabbitmq
-      KAFKA_BOOTSTRAP: kafka:29092
     ports:
       - "8081:8081"
     depends_on:
@@ -57,102 +49,11 @@ services:
       API_CLIENT_ID: ${API_CLIENT_ID:-00000000-0000-0000-0000-000000000000}
       ORDERS_URL: http://orders:8081
       CATALOG_URL: http://catalog:8082
-      REPORT_URL: http://report:8084
-      AUDIT_URL: http://audit:8085
     ports:
-      - "${BFF_PORT:-8080}:8080"
+      - "${BFF_PORT:-8080}:8080"   # si el 8080 está ocupado:  BFF_PORT=18080 docker compose up -d
     depends_on:
       - orders
       - catalog
-
-  # ---------------- Mensajería (perfil "messaging") ----------------
-  rabbitmq:
-    image: rabbitmq:4-management
-    container_name: pedidos360-rabbitmq
-    profiles: ["messaging"]
-    hostname: rabbitmq
-    environment:
-      RABBITMQ_DEFAULT_USER: pedidos360
-      RABBITMQ_DEFAULT_PASS: pedidos360
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.9.1
-    container_name: pedidos360-zookeeper
-    profiles: ["messaging"]
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-
-  kafka:
-    image: confluentinc/cp-kafka:7.9.1
-    container_name: pedidos360-kafka
-    profiles: ["messaging"]
-    depends_on:
-      - zookeeper
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-
-  notify:
-    build: ../../ms-pedidos360-notify
-    profiles: ["messaging"]
-    environment:
-      RABBITMQ_HOST: rabbitmq
-    ports:
-      - "8083:8083"
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-
-  report:
-    build: ../../ms-pedidos360-report
-    profiles: ["messaging"]
-    environment:
-      DB_HOST: mysql
-      DB_USER: root
-      DB_PASSWORD: root
-      KAFKA_BOOTSTRAP: kafka:29092
-    ports:
-      - "8084:8084"
-    depends_on:
-      mysql:
-        condition: service_healthy
-      kafka:
-        condition: service_started
-
-  audit:
-    build: ../../ms-pedidos360-audit
-    profiles: ["messaging"]
-    environment:
-      DB_HOST: mysql
-      DB_USER: root
-      DB_PASSWORD: root
-      KAFKA_BOOTSTRAP: kafka:29092
-    ports:
-      - "8085:8085"
-    depends_on:
-      mysql:
-        condition: service_healthy
-      kafka:
-        condition: service_started
 
 volumes:
   mysql-data:
