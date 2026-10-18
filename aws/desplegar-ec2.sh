@@ -4,7 +4,7 @@
 # Espera ~3 min después de crear la EC2 para que el user-data termine de instalar Docker y clonar los repos.
 set -euo pipefail
 : "${EIP:?Falta EIP}" "${DB_HOST:?Falta DB_HOST}"
-KEY="../../../labsuser.pem"     # llave en la raíz del proyecto
+KEY="../labsuser.pem"     # llave en la raíz del proyecto
 read -r -s -p "Contraseña de la RDS: " DB_PASSWORD; echo
 
 ssh -i "$KEY" -o StrictHostKeyChecking=accept-new ec2-user@"$EIP" bash -s <<EOF
