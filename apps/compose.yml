@@ -38,3 +38,19 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
     restart: unless-stopped
+
+  # Servicios "en construcción" (fuera del alcance de la EP1): solo red interna Docker
+  notify:
+    build: ../../ms-pedidos360-notify
+    container_name: pedidos360-notify
+    restart: unless-stopped
+
+  report:
+    build: ../../ms-pedidos360-report
+    container_name: pedidos360-report
+    restart: unless-stopped
+
+  audit:
+    build: ../../ms-pedidos360-audit
+    container_name: pedidos360-audit
+    restart: unless-stopped
