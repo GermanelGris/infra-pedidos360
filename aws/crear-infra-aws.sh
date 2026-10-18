@@ -49,7 +49,7 @@ echo "IP elástica: $EIP"
 
 # ---------- Paso 10: RDS MySQL (solo accesible desde la EC2) ----------
 # Equivale a "Conectarse a un recurso de computación EC2" de la consola.
-SG_RDS=$(aws ec2 create-security-group --group-name sg-pedidos360-rds \
+SG_RDS=$(aws ec2 create-security-group --group-name pedidos360-rds-sg \
   --description "Pedidos360 RDS: 3306 solo desde la EC2" --vpc-id "$VPC_ID" --query GroupId --output text)
 aws ec2 authorize-security-group-ingress --group-id "$SG_RDS" --protocol tcp --port 3306 --source-group "$SG_APPS"
 
