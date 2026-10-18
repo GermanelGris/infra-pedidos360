@@ -24,7 +24,7 @@ MY_IP="$(curl -s https://checkip.amazonaws.com)"
 # ---------- Paso 9: Security Group + EC2 ----------
 VPC_ID=$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)
 
-SG_APPS=$(aws ec2 create-security-group --group-name sg-pedidos360-apps \
+SG_APPS=$(aws ec2 create-security-group --group-name pedidos360-apps-sg \
   --description "Pedidos360 EC2: SSH y BFF" --vpc-id "$VPC_ID" --query GroupId --output text)
 aws ec2 authorize-security-group-ingress --group-id "$SG_APPS" --protocol tcp --port 22   --cidr "$MY_IP/32"
 aws ec2 authorize-security-group-ingress --group-id "$SG_APPS" --protocol tcp --port 8080 --cidr 0.0.0.0/0
