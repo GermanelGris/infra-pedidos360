@@ -10,7 +10,7 @@ services:
       TENANT_ID: ${TENANT_ID}
       API_CLIENT_ID: ${API_CLIENT_ID}
       API_SCOPE: ${API_SCOPE:-Pedidos.ReadWrite}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200,https://germanelgris.github.io}   # solo el origin, sin /frontend-pedidos360/
       ORDERS_URL: http://orders:8081
       CATALOG_URL: http://catalog:8082
       MQ_ADMIN_URL: http://mq-admin:8086
