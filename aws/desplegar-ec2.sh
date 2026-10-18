@@ -4,7 +4,7 @@
 # Espera ~3 min después de crear la EC2 para que el user-data termine de instalar Docker y clonar los repos.
 set -euo pipefail
 : "${EIP:?Falta EIP}" "${DB_HOST:?Falta DB_HOST}"
-KEY="../labsuser.pem"     # llave en la raíz del proyecto
+KEY="${KEY:-../../../labsuser.pem}"   # llave en la carpeta que contiene pedidos360/ (o KEY=<ruta>)
 read -r -s -p "Contraseña de la RDS: " DB_PASSWORD; echo
 read -r -s -p "Contraseña para RabbitMQ: " RABBITMQ_PASSWORD; echo
 
@@ -23,7 +23,7 @@ cat > .env <<ENV
 TENANT_ID=bd2636b9-f868-446b-a06f-542bde5b43ae
 API_CLIENT_ID=9626370e-d9b7-4f84-9a68-444cde77f6da
 API_SCOPE=Pedidos.ReadWrite
-CORS_ALLOWED_ORIGINS=http://localhost:4200
+CORS_ALLOWED_ORIGINS=http://localhost:4200,https://germanelgris.github.io
 DB_HOST=$DB_HOST
 DB_USER=admin
 DB_PASSWORD=$DB_PASSWORD
