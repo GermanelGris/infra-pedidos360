@@ -1,6 +1,7 @@
 # Entorno local completo (sin AWS): MySQL + RabbitMQ + catalog + orders + notify + mq-admin + BFF.
 # Solo MySQL y RabbitMQ (servicios desde el IDE):  docker compose up -d mysql rabbitmq
 # Todo el backend:                                 docker compose up -d --build
+# Con report y audit:                              docker compose --profile extra up -d --build
 # RabbitMQ Management UI:                          http://localhost:15672  (pedidos360 / pedidos360)
 services:
   mysql:
@@ -18,16 +19,19 @@ services:
       timeout: 5s
       retries: 20
 
+  # ---------------- Mensajería (EP3) ----------------
   rabbitmq:
     image: rabbitmq:4-management
     container_name: pedidos360-rabbitmq
     hostname: rabbitmq
     environment:
-      RABBITMQ_DEFAULT_USER: pedidos360
-      RABBITMQ_DEFAULT_PASS: pedidos360
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-pedidos360}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-pedidos360}
     ports:
       - "5672:5672"     # AMQP
       - "15672:15672"   # Management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -36,6 +40,7 @@ services:
 
   catalog:
     build: ../../ms-pedidos360-catalog
+    container_name: pedidos360-catalog
     environment:
       DB_HOST: mysql
       DB_USER: root
@@ -48,12 +53,15 @@ services:
 
   orders:
     build: ../../ms-pedidos360-orders
+    container_name: pedidos360-orders
     environment:
       DB_HOST: mysql
       DB_USER: root
       DB_PASSWORD: root
       CATALOG_URL: http://catalog:8082
       RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     ports:
       - "8081:8081"
     depends_on:
@@ -61,11 +69,16 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      catalog:
+        condition: service_started
 
   notify:
     build: ../../ms-pedidos360-notify
+    container_name: pedidos360-notify
     environment:
       RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     ports:
       - "8083:8083"
     depends_on:
@@ -74,8 +87,11 @@ services:
 
   mq-admin:
     build: ../../ms-pedidos360-mq-admin
+    container_name: pedidos360-mq-admin
     environment:
       RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     ports:
       - "8086:8086"     # Swagger UI: http://localhost:8086/swagger-ui.html
     depends_on:
@@ -84,9 +100,12 @@ services:
 
   bff:
     build: ../../ms-pedidos360-bff
+    container_name: pedidos360-bff
     environment:
       TENANT_ID: ${TENANT_ID:-00000000-0000-0000-0000-000000000000}
       API_CLIENT_ID: ${API_CLIENT_ID:-00000000-0000-0000-0000-000000000000}
+      API_SCOPE: ${API_SCOPE:-Pedidos.ReadWrite}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
       ORDERS_URL: http://orders:8081
       CATALOG_URL: http://catalog:8082
       MQ_ADMIN_URL: http://mq-admin:8086
@@ -97,5 +116,22 @@ services:
       - catalog
       - mq-admin
 
+  # Servicios "en construcción": solo con  docker compose --profile extra up -d
+  report:
+    build: ../../ms-pedidos360-report
+    container_name: pedidos360-report
+    profiles: ["extra"]
+    ports:
+      - "8084:8084"
+
+  audit:
+    build: ../../ms-pedidos360-audit
+    container_name: pedidos360-audit
+    profiles: ["extra"]
+    ports:
+      - "8085:8085"
+
 volumes:
   mysql-data:
+  rabbitmq-data:
+
