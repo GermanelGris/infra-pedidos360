@@ -1,6 +1,7 @@
-# Entorno local completo (sin AWS): MySQL + catalog + orders + BFF.
-# Solo MySQL (para correr los servicios desde el IDE):  docker compose up -d mysql
-# Todo el backend:                                       docker compose up -d --build
+# Entorno local completo (sin AWS): MySQL + RabbitMQ + catalog + orders + notify + mq-admin + BFF.
+# Solo MySQL y RabbitMQ (servicios desde el IDE):  docker compose up -d mysql rabbitmq
+# Todo el backend:                                 docker compose up -d --build
+# RabbitMQ Management UI:                          http://localhost:15672  (pedidos360 / pedidos360)
 services:
   mysql:
     image: mysql:8.4
@@ -16,6 +17,22 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: pedidos360-rabbitmq
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: pedidos360
+      RABBITMQ_DEFAULT_PASS: pedidos360
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # Management UI
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   catalog:
     build: ../../ms-pedidos360-catalog
@@ -36,10 +53,33 @@ services:
       DB_USER: root
       DB_PASSWORD: root
       CATALOG_URL: http://catalog:8082
+      RABBITMQ_HOST: rabbitmq
     ports:
       - "8081:8081"
     depends_on:
       mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  notify:
+    build: ../../ms-pedidos360-notify
+    environment:
+      RABBITMQ_HOST: rabbitmq
+    ports:
+      - "8083:8083"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  mq-admin:
+    build: ../../ms-pedidos360-mq-admin
+    environment:
+      RABBITMQ_HOST: rabbitmq
+    ports:
+      - "8086:8086"     # Swagger UI: http://localhost:8086/swagger-ui.html
+    depends_on:
+      rabbitmq:
         condition: service_healthy
 
   bff:
@@ -49,11 +89,13 @@ services:
       API_CLIENT_ID: ${API_CLIENT_ID:-00000000-0000-0000-0000-000000000000}
       ORDERS_URL: http://orders:8081
       CATALOG_URL: http://catalog:8082
+      MQ_ADMIN_URL: http://mq-admin:8086
     ports:
       - "${BFF_PORT:-8080}:8080"   # si el 8080 está ocupado:  BFF_PORT=18080 docker compose up -d
     depends_on:
       - orders
       - catalog
+      - mq-admin
 
 volumes:
   mysql-data:

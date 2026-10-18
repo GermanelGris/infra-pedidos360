@@ -1,0 +1,31 @@
+# CD de infra: en cada push a main que cambie apps/ actualiza el repo en la EC2 y aplica el compose
+# (crea o recrea solo los contenedores cuya definición cambió).
+# Secrets del repositorio: EC2_HOST (IP elástica) y EC2_SSH_KEY (contenido de labsuser.pem).
+name: CD
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps/**']
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Aplicar compose en EC2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Actualizar y aplicar
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          command_timeout: 30m
+          script: |
+            set -e
+            cd ~/pedidos360/infra
+            git pull --ff-only
+            cd apps
+            sudo docker compose up -d --build
+            sudo docker image prune -f
+            sudo docker compose ps

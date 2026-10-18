@@ -6,11 +6,17 @@ set -euo pipefail
 : "${EIP:?Falta EIP}" "${DB_HOST:?Falta DB_HOST}"
 KEY="../labsuser.pem"     # llave en la raíz del proyecto
 read -r -s -p "Contraseña de la RDS: " DB_PASSWORD; echo
+read -r -s -p "Contraseña para RabbitMQ: " RABBITMQ_PASSWORD; echo
 
 ssh -i "$KEY" -o StrictHostKeyChecking=accept-new ec2-user@"$EIP" bash -s <<EOF
 set -e
 cd ~/pedidos360
-for r in ms-pedidos360-bff ms-pedidos360-orders ms-pedidos360-catalog infra; do (cd \$r && git pull); done
+for r in ms-pedidos360-notify ms-pedidos360-mq-admin; do
+  [ -d \$r ] || git clone https://github.com/GermanelGris/\$r.git
+done
+for r in ms-pedidos360-bff ms-pedidos360-orders ms-pedidos360-catalog ms-pedidos360-notify ms-pedidos360-mq-admin infra; do
+  (cd \$r && git pull)
+done
 
 cd infra/apps
 cat > .env <<ENV
@@ -21,6 +27,8 @@ CORS_ALLOWED_ORIGINS=http://localhost:4200
 DB_HOST=$DB_HOST
 DB_USER=admin
 DB_PASSWORD=$DB_PASSWORD
+RABBITMQ_USER=pedidos360
+RABBITMQ_PASSWORD=$RABBITMQ_PASSWORD
 ENV
 chmod 600 .env
 
@@ -28,6 +36,8 @@ chmod 600 .env
 sudo docker compose build catalog
 sudo docker compose build orders
 sudo docker compose build bff
+sudo docker compose build notify
+sudo docker compose build mq-admin
 sudo docker compose up -d
 sudo docker compose ps
 sleep 40

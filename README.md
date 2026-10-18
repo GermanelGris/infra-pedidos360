@@ -7,9 +7,12 @@ Angular (MSAL) ──Bearer JWT──> AWS API Gateway (JWT Authorizer)
                                    │
                                    ▼
                           EC2 · Docker Compose
-                          ├─ ms-pedidos360-bff      :8080 (valida JWT + roles)
-                          ├─ ms-pedidos360-orders   :8081 (interno)
-                          └─ ms-pedidos360-catalog  :8082 (interno)
+                          ├─ ms-pedidos360-bff       :8080 (valida JWT + roles)
+                          ├─ ms-pedidos360-orders    :8081 (interno) ──publica──┐
+                          ├─ ms-pedidos360-catalog   :8082 (interno)            ▼
+                          ├─ rabbitmq                :5672 / UI :15672   cmd.direct → q.cmd.{email,kitchen,invoice}
+                          ├─ ms-pedidos360-notify    :8083 (consume, ACK/NACK, reintentos, DLQ)
+                          └─ ms-pedidos360-mq-admin  :8086 (API REST de colas/exchanges/bindings, vía BFF solo Admin)
                                    │
                                    ▼
                           Amazon RDS MySQL
@@ -19,9 +22,11 @@ Angular (MSAL) ──Bearer JWT──> AWS API Gateway (JWT Authorizer)
 
 | Carpeta | Uso |
 |---|---|
-| `apps/compose.yml` | Despliegue en EC2 (bff, orders, catalog) contra Amazon RDS |
+| `apps/compose.yml` | Despliegue en EC2 (bff, orders, catalog, rabbitmq, notify, mq-admin) contra Amazon RDS |
 | `apps/.env.example` | Variables requeridas (copiar a `.env`, que no se sube) |
-| `local/compose.yml` | Entorno local completo: MySQL + catalog + orders + bff |
+| `local/compose.yml` | Entorno local completo: MySQL + RabbitMQ + catalog + orders + notify + mq-admin + bff |
+| `aws/` | Scripts de creación de la infraestructura y primer despliegue |
+| `.github/workflows/cd.yml` | Aplica `apps/compose.yml` en la EC2 cuando cambia |
 
 Los repos se clonan uno al lado del otro:
 
@@ -30,16 +35,21 @@ pedidos360/
 ├─ infra/
 ├─ ms-pedidos360-bff/
 ├─ ms-pedidos360-orders/
-└─ ms-pedidos360-catalog/
+├─ ms-pedidos360-catalog/
+├─ ms-pedidos360-notify/
+└─ ms-pedidos360-mq-admin/
 ```
 
 ## Local
 
 ```bash
 cd local
-docker compose up -d --build        # todo el backend
-docker compose up -d mysql          # solo la base (servicios desde el IDE)
+docker compose up -d --build              # todo el backend
+docker compose up -d mysql rabbitmq       # solo la base y el broker (servicios desde el IDE)
 ```
+
+- RabbitMQ Management UI: http://localhost:15672 (`pedidos360` / `pedidos360`)
+- Swagger del administrador: http://localhost:8086/swagger-ui.html
 
 ## EC2
 
@@ -65,7 +75,32 @@ curl http://localhost:8080/actuator/health
 |---|---|---|
 | EC2 | 22 | Mi IP |
 | EC2 | 8080 | 0.0.0.0/0 (API Gateway) |
+| EC2 | 15672 | Mi IP (Management UI de RabbitMQ) |
 | RDS | 3306 | Security Group de la EC2 |
+
+## CI/CD (GitHub Actions)
+
+Cada microservicio tiene `.github/workflows/ci-cd.yml`:
+
+1. **CI** (cada push y PR): `./mvnw -B verify` con Java 21.
+2. **CD** (push a `main` con pruebas en verde): entra por SSH a la EC2, hace `git pull` en el repo y ejecuta `docker compose up -d --build <servicio>`. Solo se reconstruye el contenedor que cambió.
+
+`infra` tiene `.github/workflows/cd.yml`, que aplica el compose cuando cambia `apps/`. El frontend se publica en GitHub Pages con `deploy-pages.yml`.
+
+Configuración (una vez por repositorio, en *Settings → Secrets and variables → Actions*):
+
+| Secret | Valor |
+|---|---|
+| `EC2_HOST` | IP elástica de la EC2 |
+| `EC2_SSH_KEY` | Contenido completo de `labsuser.pem` |
+
+Los runners de GitHub no tienen IP fija, así que el puerto 22 de la EC2 debe aceptar `0.0.0.0/0`. El acceso sigue protegido porque solo se entra con la llave:
+
+```bash
+aws ec2 authorize-security-group-ingress --group-id <SG_EC2> --protocol tcp --port 22 --cidr 0.0.0.0/0
+```
+
+> En AWS Academy el laboratorio se apaga: el deploy solo funciona con el lab iniciado y la EC2 encendida. La IP elástica no cambia entre sesiones.
 
 ## Autores
 

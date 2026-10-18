@@ -1,11 +1,11 @@
-# Despliegue en EC2 (ec2-apps). La base de datos es Amazon RDS MySQL.
+# Despliegue en EC2 (ec2-apps). La base de datos es Amazon RDS MySQL; RabbitMQ corre en esta misma EC2.
 # Uso:  cp .env.example .env  &&  nano .env  &&  docker compose up -d --build
 services:
   bff:
     build: ../../ms-pedidos360-bff
     container_name: pedidos360-bff
     ports:
-      - "8080:8080"          # único puerto público: lo consume el API Gateway
+      - "8080:8080"          # único puerto público de la API: lo consume el API Gateway
     environment:
       TENANT_ID: ${TENANT_ID}
       API_CLIENT_ID: ${API_CLIENT_ID}
@@ -13,9 +13,11 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
       ORDERS_URL: http://orders:8081
       CATALOG_URL: http://catalog:8082
+      MQ_ADMIN_URL: http://mq-admin:8086
     depends_on:
       - orders
       - catalog
+      - mq-admin
     restart: unless-stopped
 
   orders:
@@ -26,8 +28,14 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       CATALOG_URL: http://catalog:8082
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     depends_on:
-      - catalog
+      catalog:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     restart: unless-stopped
 
   catalog:
@@ -39,18 +47,62 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
     restart: unless-stopped
 
-  # Servicios "en construcción" (fuera del alcance de la EP1): solo red interna Docker
+  # ---------------- Mensajería (EP3) ----------------
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: pedidos360-rabbitmq
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-pedidos360}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-pedidos360}
+    ports:
+      - "15672:15672"        # Management UI: abrir en el Security Group solo para "Mi IP"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
   notify:
     build: ../../ms-pedidos360-notify
     container_name: pedidos360-notify
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     restart: unless-stopped
 
+  mq-admin:
+    build: ../../ms-pedidos360-mq-admin
+    container_name: pedidos360-mq-admin
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Servicios "en construcción": no se levantan por defecto para ahorrar RAM.
+  # docker compose --profile extra up -d
   report:
     build: ../../ms-pedidos360-report
     container_name: pedidos360-report
+    profiles: ["extra"]
     restart: unless-stopped
 
   audit:
     build: ../../ms-pedidos360-audit
     container_name: pedidos360-audit
+    profiles: ["extra"]
     restart: unless-stopped
+
+volumes:
+  rabbitmq-data:

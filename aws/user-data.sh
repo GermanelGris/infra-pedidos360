@@ -16,7 +16,7 @@ curl -SL https://github.com/docker/buildx/releases/download/v0.19.3/buildx-v0.19
   -o /usr/local/lib/docker/cli-plugins/docker-buildx
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/docker-buildx
 
-# 3) Swap de 2 GB (la t3.small tiene poca RAM para compilar 3 proyectos Java)
+# 3) Swap de 2 GB (la t3.small tiene poca RAM para compilar los proyectos Java)
 dd if=/dev/zero of=/swapfile bs=1M count=2048
 chmod 600 /swapfile
 mkswap /swapfile
@@ -29,5 +29,7 @@ sudo -u ec2-user bash -c '
   git clone https://github.com/GermanelGris/ms-pedidos360-bff.git
   git clone https://github.com/GermanelGris/ms-pedidos360-orders.git
   git clone https://github.com/GermanelGris/ms-pedidos360-catalog.git
+  git clone https://github.com/GermanelGris/ms-pedidos360-notify.git
+  git clone https://github.com/GermanelGris/ms-pedidos360-mq-admin.git
   git clone https://github.com/GermanelGris/infra-pedidos360.git infra
 '
