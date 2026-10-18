@@ -90,18 +90,15 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # Servicios "en construcción": no se levantan por defecto para ahorrar RAM.
-  # docker compose --profile extra up -d
+  # ---------------- Servicios en construcción ----------------
   report:
     build: ../../ms-pedidos360-report
     container_name: pedidos360-report
-    profiles: ["extra"]
     restart: unless-stopped
 
   audit:
     build: ../../ms-pedidos360-audit
     container_name: pedidos360-audit
-    profiles: ["extra"]
     restart: unless-stopped
 
 volumes:
