@@ -1,5 +1,18 @@
 # Despliegue en EC2 (ec2-apps). La base de datos es Amazon RDS MySQL; RabbitMQ corre en esta misma EC2.
 # Uso:  cp .env.example .env  &&  nano .env  &&  docker compose up -d --build
+x-rabbit-node: &rabbit-node
+  image: rabbitmq:4-management
+  environment:
+    RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
+    RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-pedidos360}
+    RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-pedidos360}
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+    interval: 10s
+    timeout: 5s
+    retries: 12
+  restart: unless-stopped
+
 services:
   bff:
     build: ../../ms-pedidos360-bff
@@ -32,13 +45,14 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       CATALOG_URL: http://catalog:8082
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: rabbit1
+      SPRING_RABBITMQ_ADDRESSES: rabbit1:5672,rabbit2:5672   # si cae un nodo, se reconecta al otro
       RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     depends_on:
       catalog:
         condition: service_started
-      rabbitmq:
+      rabbit1:
         condition: service_healthy
     restart: unless-stopped
 
@@ -51,34 +65,59 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
     restart: unless-stopped
 
-  # ---------------- Mensajería (EP3) ----------------
-  rabbitmq:
-    image: rabbitmq:4-management
-    container_name: pedidos360-rabbitmq
-    hostname: rabbitmq
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-pedidos360}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-pedidos360}
-    ports:
-      - "15672:15672"        # Management UI: abrir en el Security Group solo para "Mi IP"
+  # ---------------- Mensajería: clúster RabbitMQ de dos nodos ----------------
+  # Iguales en ambos nodos: imagen, usuario/clave y RABBITMQ_ERLANG_COOKIE (secreto compartido para unirse).
+  # Distintos: hostname (nombre de nodo), volumen de datos y puertos publicados.
+  # Verificar:  docker compose exec rabbit1 rabbitmqctl cluster_status
+  rabbit1:
+    <<: *rabbit-node
+    container_name: pedidos360-rabbit1
+    hostname: rabbit1              # nombre de nodo: rabbit@rabbit1
     volumes:
-      - rabbitmq-data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-    restart: unless-stopped
+      - rabbit1-data:/var/lib/rabbitmq
+      - ../rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-cluster.conf:ro
+    ports:
+      - "15672:15672"        # Management UI de rabbit1: abrir en el Security Group solo para "Mi IP"
+
+  rabbit2:
+    <<: *rabbit-node
+    container_name: pedidos360-rabbit2
+    hostname: rabbit2              # nombre de nodo: rabbit@rabbit2
+    volumes:
+      - rabbit2-data:/var/lib/rabbitmq
+      - ../rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-cluster.conf:ro
+    ports:
+      - "15673:15672"        # Management UI de rabbit2
+    depends_on:
+      rabbit1:
+        condition: service_healthy
+
+  # Políticas de retención y limpieza (P11): se aplican una vez y el contenedor termina
+  rabbit-policies:
+    image: rabbitmq:4-management
+    container_name: pedidos360-rabbit-policies
+    environment:
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
+    volumes:
+      - ../rabbitmq/policies.sh:/policies.sh:ro
+    entrypoint: ["sh", "/policies.sh"]
+    depends_on:
+      rabbit1:
+        condition: service_healthy
+      rabbit2:
+        condition: service_healthy
+    restart: "no"
 
   notify:
     build: ../../ms-pedidos360-notify
     container_name: pedidos360-notify
     environment:
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: rabbit1
+      SPRING_RABBITMQ_ADDRESSES: rabbit1:5672,rabbit2:5672   # si cae un nodo, se reconecta al otro
       RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     depends_on:
-      rabbitmq:
+      rabbit1:
         condition: service_healthy
     restart: unless-stopped
 
@@ -86,11 +125,12 @@ services:
     build: ../../ms-pedidos360-mq-admin
     container_name: pedidos360-mq-admin
     environment:
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: rabbit1
+      SPRING_RABBITMQ_ADDRESSES: rabbit1:5672,rabbit2:5672   # si cae un nodo, se reconecta al otro
       RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     depends_on:
-      rabbitmq:
+      rabbit1:
         condition: service_healthy
     restart: unless-stopped
 
@@ -102,11 +142,12 @@ services:
       DB_HOST: ${DB_HOST}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: rabbit1
+      SPRING_RABBITMQ_ADDRESSES: rabbit1:5672,rabbit2:5672   # si cae un nodo, se reconecta al otro
       RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     depends_on:
-      rabbitmq:
+      rabbit1:
         condition: service_healthy
     restart: unless-stopped
 
@@ -117,13 +158,15 @@ services:
       DB_HOST: ${DB_HOST}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: rabbit1
+      SPRING_RABBITMQ_ADDRESSES: rabbit1:5672,rabbit2:5672   # si cae un nodo, se reconecta al otro
       RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     depends_on:
-      rabbitmq:
+      rabbit1:
         condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  rabbitmq-data:
+  rabbit1-data:
+  rabbit2-data:

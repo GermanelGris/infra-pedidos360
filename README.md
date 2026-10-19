@@ -10,7 +10,7 @@ Angular (MSAL) ──Bearer JWT──> AWS API Gateway (JWT Authorizer)
                           ├─ ms-pedidos360-bff       :8080 (valida JWT + roles)
                           ├─ ms-pedidos360-orders    :8081 (interno) ──publica──┐
                           ├─ ms-pedidos360-catalog   :8082 (interno)            ▼
-                          ├─ rabbitmq                :5672 / UI :15672   cmd.direct    → q.cmd.{email,kitchen,invoice}
+                          ├─ rabbit1 + rabbit2 (clúster) UI :15672/:15673  cmd.direct    → q.cmd.{email,kitchen,invoice}
                           │                                              orders.events → q.report.orders, q.audit.orders
                           ├─ ms-pedidos360-notify    :8083 (comandos: aviso, cocina, boleta)
                           ├─ ms-pedidos360-report    :8084 (eventos → KPIs, vía BFF solo Admin)
@@ -52,10 +52,10 @@ pedidos360/
 ```bash
 cd local
 docker compose up -d --build              # todo el backend
-docker compose up -d mysql rabbitmq       # solo la base y el broker (servicios desde el IDE)
+docker compose up -d mysql rabbit1 rabbit2   # solo la base y el clúster (servicios desde el IDE)
 ```
 
-- RabbitMQ Management UI: http://localhost:15672 (`pedidos360` / `pedidos360`)
+- RabbitMQ Management UI: http://localhost:15672 (rabbit1) y http://localhost:15673 (rabbit2), `pedidos360` / `pedidos360`
 - Swagger del administrador: http://localhost:8086/swagger-ui.html
 
 ## EC2
@@ -66,6 +66,34 @@ cp .env.example .env && nano .env
 docker compose up -d --build
 curl http://localhost:8080/actuator/health
 ```
+
+## Clúster RabbitMQ y políticas
+
+El broker es un clúster de dos nodos, `rabbit1` y `rabbit2`, definidos en el mismo compose con un ancla YAML común (`x-rabbit-node`).
+
+| Parámetro | rabbit1 | rabbit2 |
+|---|---|---|
+| Imagen | `rabbitmq:4-management` | igual |
+| Usuario / clave | `RABBITMQ_USER` / `RABBITMQ_PASSWORD` | igual |
+| `RABBITMQ_ERLANG_COOKIE` | secreto del `.env` | igual (sin esto no se pueden unir) |
+| `hostname` / nombre de nodo | `rabbit1` / `rabbit@rabbit1` | `rabbit2` / `rabbit@rabbit2` |
+| Volumen de datos | `rabbit1-data` | `rabbit2-data` |
+| Management UI publicada | 15672 | 15673 |
+
+- `rabbitmq/rabbitmq.conf` (montado en ambos) declara el descubrimiento `classic_config` con los dos nodos: el segundo se une solo al primero.
+- Los microservicios se conectan con `SPRING_RABBITMQ_ADDRESSES=rabbit1:5672,rabbit2:5672` y, si cae uno, se reconectan al otro.
+- Las colas son clásicas y viven en el nodo donde se declararon (`rabbit1`). Para que sobrevivan a la caída de ese nodo habría que declararlas como *quorum queues*.
+- Verificación: `docker compose exec rabbit1 rabbitmqctl cluster_status` (Running Nodes: `rabbit@rabbit1`, `rabbit@rabbit2`) o Management UI → Overview → Nodes.
+
+`rabbitmq/policies.sh` lo ejecuta el contenedor `rabbit-policies` cuando el clúster está arriba (luego termina con código 0):
+
+| Policy | Colas | Definición |
+|---|---|---|
+| `colas-negocio` | `q.cmd.{email,kitchen,invoice}`, `q.report.orders`, `q.audit.orders` | `max-length` 10000, `overflow` reject-publish-dlx, `message-ttl` 24 h |
+| `colas-dlq` | `*.dlq` | `max-length` 5000, `message-ttl` 7 días |
+| `colas-temporales` | `tmp.*` (creadas desde el administrador) | `expires` 1 h sin uso, `max-length` 1000 |
+
+Se usan policies y no argumentos `x-*` en la declaración porque una policy se cambia en caliente; cambiar los argumentos de una cola existente da `PRECONDITION_FAILED`. Las colas `.retry` no llevan policy: tienen su propio TTL de 5 s.
 
 ## API Gateway (HTTP API)
 
@@ -82,7 +110,7 @@ curl http://localhost:8080/actuator/health
 |---|---|---|
 | EC2 | 22 | Mi IP |
 | EC2 | 8080 | 0.0.0.0/0 (API Gateway) |
-| EC2 | 15672 | Mi IP (Management UI de RabbitMQ) |
+| EC2 | 15672, 15673 | Mi IP (Management UI de rabbit1 y rabbit2) |
 | RDS | 3306 | Security Group de la EC2 |
 
 ## CI/CD (GitHub Actions)

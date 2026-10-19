@@ -1,0 +1,3 @@
+# Scripts y configuración que se montan en contenedores Linux: siempre con LF
+rabbitmq/* text eol=lf
+*.sh text eol=lf

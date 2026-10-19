@@ -2,6 +2,18 @@
 # Solo MySQL y RabbitMQ (servicios desde el IDE):  docker compose up -d mysql rabbitmq
 # Todo el backend:                                 docker compose up -d --build
 # RabbitMQ Management UI:                          http://localhost:15672  (pedidos360 / pedidos360)
+x-rabbit-node: &rabbit-node
+  image: rabbitmq:4-management
+  environment:
+    RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-pedidos360-cookie-local}
+    RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-pedidos360}
+    RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-pedidos360}
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+    interval: 10s
+    timeout: 5s
+    retries: 12
+
 services:
   mysql:
     image: mysql:8.4
@@ -18,24 +30,50 @@ services:
       timeout: 5s
       retries: 20
 
-  # ---------------- Mensajería (EP3) ----------------
-  rabbitmq:
-    image: rabbitmq:4-management
-    container_name: pedidos360-rabbitmq
-    hostname: rabbitmq
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-pedidos360}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-pedidos360}
+  # ---------------- Mensajería: clúster RabbitMQ de dos nodos ----------------
+  # Iguales en ambos nodos: imagen, usuario/clave y RABBITMQ_ERLANG_COOKIE (secreto compartido para unirse).
+  # Distintos: hostname (nombre de nodo), volumen de datos y puertos publicados.
+  # Verificar:  docker compose exec rabbit1 rabbitmqctl cluster_status
+  rabbit1:
+    <<: *rabbit-node
+    container_name: pedidos360-rabbit1
+    hostname: rabbit1              # nombre de nodo: rabbit@rabbit1
+    volumes:
+      - rabbit1-data:/var/lib/rabbitmq
+      - ../rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-cluster.conf:ro
     ports:
       - "5672:5672"     # AMQP
       - "15672:15672"   # Management UI
+
+  rabbit2:
+    <<: *rabbit-node
+    container_name: pedidos360-rabbit2
+    hostname: rabbit2              # nombre de nodo: rabbit@rabbit2
     volumes:
-      - rabbitmq-data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
+      - rabbit2-data:/var/lib/rabbitmq
+      - ../rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-cluster.conf:ro
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    depends_on:
+      rabbit1:
+        condition: service_healthy
+
+  # Políticas de retención y limpieza (P11): se aplican una vez y el contenedor termina
+  rabbit-policies:
+    image: rabbitmq:4-management
+    container_name: pedidos360-rabbit-policies
+    environment:
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-pedidos360-cookie-local}
+    volumes:
+      - ../rabbitmq/policies.sh:/policies.sh:ro
+    entrypoint: ["sh", "/policies.sh"]
+    depends_on:
+      rabbit1:
+        condition: service_healthy
+      rabbit2:
+        condition: service_healthy
+    restart: "no"
 
   catalog:
     build: ../../ms-pedidos360-catalog
@@ -58,7 +96,8 @@ services:
       DB_USER: root
       DB_PASSWORD: root
       CATALOG_URL: http://catalog:8082
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: rabbit1
+      SPRING_RABBITMQ_ADDRESSES: rabbit1:5672,rabbit2:5672   # si cae un nodo, se reconecta al otro
       RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     ports:
@@ -66,7 +105,7 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-      rabbitmq:
+      rabbit1:
         condition: service_healthy
       catalog:
         condition: service_started
@@ -75,26 +114,28 @@ services:
     build: ../../ms-pedidos360-notify
     container_name: pedidos360-notify
     environment:
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: rabbit1
+      SPRING_RABBITMQ_ADDRESSES: rabbit1:5672,rabbit2:5672   # si cae un nodo, se reconecta al otro
       RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     ports:
       - "8083:8083"
     depends_on:
-      rabbitmq:
+      rabbit1:
         condition: service_healthy
 
   mq-admin:
     build: ../../ms-pedidos360-mq-admin
     container_name: pedidos360-mq-admin
     environment:
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: rabbit1
+      SPRING_RABBITMQ_ADDRESSES: rabbit1:5672,rabbit2:5672   # si cae un nodo, se reconecta al otro
       RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     ports:
       - "8086:8086"     # Swagger UI: http://localhost:8086/swagger-ui.html
     depends_on:
-      rabbitmq:
+      rabbit1:
         condition: service_healthy
 
   bff:
@@ -127,7 +168,8 @@ services:
       DB_HOST: mysql
       DB_USER: root
       DB_PASSWORD: root
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: rabbit1
+      SPRING_RABBITMQ_ADDRESSES: rabbit1:5672,rabbit2:5672   # si cae un nodo, se reconecta al otro
       RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     ports:
@@ -135,7 +177,7 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-      rabbitmq:
+      rabbit1:
         condition: service_healthy
 
   audit:
@@ -145,7 +187,8 @@ services:
       DB_HOST: mysql
       DB_USER: root
       DB_PASSWORD: root
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: rabbit1
+      SPRING_RABBITMQ_ADDRESSES: rabbit1:5672,rabbit2:5672   # si cae un nodo, se reconecta al otro
       RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     ports:
@@ -153,10 +196,11 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-      rabbitmq:
+      rabbit1:
         condition: service_healthy
 
 volumes:
   mysql-data:
-  rabbitmq-data:
+  rabbit1-data:
+  rabbit2-data:
 
