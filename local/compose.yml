@@ -1,7 +1,6 @@
-# Entorno local completo (sin AWS): MySQL + RabbitMQ + catalog + orders + notify + mq-admin + BFF.
+# Entorno local completo (sin AWS): MySQL + RabbitMQ + catalog + orders + notify + report + audit + mq-admin + BFF.
 # Solo MySQL y RabbitMQ (servicios desde el IDE):  docker compose up -d mysql rabbitmq
 # Todo el backend:                                 docker compose up -d --build
-# Con report y audit:                              docker compose --profile extra up -d --build
 # RabbitMQ Management UI:                          http://localhost:15672  (pedidos360 / pedidos360)
 services:
   mysql:
@@ -109,27 +108,53 @@ services:
       ORDERS_URL: http://orders:8081
       CATALOG_URL: http://catalog:8082
       MQ_ADMIN_URL: http://mq-admin:8086
+      REPORT_URL: http://report:8084
+      AUDIT_URL: http://audit:8085
     ports:
       - "${BFF_PORT:-8080}:8080"   # si el 8080 está ocupado:  BFF_PORT=18080 docker compose up -d
     depends_on:
       - orders
       - catalog
       - mq-admin
+      - report
+      - audit
 
-  # Servicios "en construcción": solo con  docker compose --profile extra up -d
+  # Suscriptores de orders.events (topic): cada uno con su cola, reintentos y DLQ
   report:
     build: ../../ms-pedidos360-report
     container_name: pedidos360-report
-    profiles: ["extra"]
+    environment:
+      DB_HOST: mysql
+      DB_USER: root
+      DB_PASSWORD: root
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     ports:
-      - "8084:8084"
+      - "8084:8084"     # Swagger UI: http://localhost:8084/swagger-ui.html
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
   audit:
     build: ../../ms-pedidos360-audit
     container_name: pedidos360-audit
-    profiles: ["extra"]
+    environment:
+      DB_HOST: mysql
+      DB_USER: root
+      DB_PASSWORD: root
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
     ports:
-      - "8085:8085"
+      - "8085:8085"     # Swagger UI: http://localhost:8085/swagger-ui.html
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
 volumes:
   mysql-data:

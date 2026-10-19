@@ -10,9 +10,14 @@ Angular (MSAL) ──Bearer JWT──> AWS API Gateway (JWT Authorizer)
                           ├─ ms-pedidos360-bff       :8080 (valida JWT + roles)
                           ├─ ms-pedidos360-orders    :8081 (interno) ──publica──┐
                           ├─ ms-pedidos360-catalog   :8082 (interno)            ▼
-                          ├─ rabbitmq                :5672 / UI :15672   cmd.direct → q.cmd.{email,kitchen,invoice}
-                          ├─ ms-pedidos360-notify    :8083 (consume, ACK/NACK, reintentos, DLQ)
+                          ├─ rabbitmq                :5672 / UI :15672   cmd.direct    → q.cmd.{email,kitchen,invoice}
+                          │                                              orders.events → q.report.orders, q.audit.orders
+                          ├─ ms-pedidos360-notify    :8083 (comandos: aviso, cocina, boleta)
+                          ├─ ms-pedidos360-report    :8084 (eventos → KPIs, vía BFF solo Admin)
+                          ├─ ms-pedidos360-audit     :8085 (eventos → timeline, vía BFF solo Admin)
                           └─ ms-pedidos360-mq-admin  :8086 (API REST de colas/exchanges/bindings, vía BFF solo Admin)
+
+                          Todos los consumidores: ACK/NACK manual, reintentos con cola .retry (TTL) y DLQ.
                                    │
                                    ▼
                           Amazon RDS MySQL
@@ -22,9 +27,9 @@ Angular (MSAL) ──Bearer JWT──> AWS API Gateway (JWT Authorizer)
 
 | Carpeta | Uso |
 |---|---|
-| `apps/compose.yml` | Despliegue en EC2 (bff, orders, catalog, rabbitmq, notify, mq-admin) contra Amazon RDS |
+| `apps/compose.yml` | Despliegue en EC2 (bff, orders, catalog, rabbitmq, notify, report, audit, mq-admin) contra Amazon RDS |
 | `apps/.env.example` | Variables requeridas (copiar a `.env`, que no se sube) |
-| `local/compose.yml` | Entorno local completo: MySQL + RabbitMQ + catalog + orders + notify + mq-admin + bff |
+| `local/compose.yml` | Entorno local completo: MySQL + RabbitMQ + catalog + orders + notify + report + audit + mq-admin + bff |
 | `aws/` | Scripts de creación de la infraestructura y primer despliegue |
 | `.github/workflows/cd.yml` | Aplica `apps/compose.yml` en la EC2 cuando cambia |
 
@@ -37,6 +42,8 @@ pedidos360/
 ├─ ms-pedidos360-orders/
 ├─ ms-pedidos360-catalog/
 ├─ ms-pedidos360-notify/
+├─ ms-pedidos360-report/
+├─ ms-pedidos360-audit/
 └─ ms-pedidos360-mq-admin/
 ```
 

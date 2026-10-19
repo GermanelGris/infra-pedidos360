@@ -14,10 +14,14 @@ services:
       ORDERS_URL: http://orders:8081
       CATALOG_URL: http://catalog:8082
       MQ_ADMIN_URL: http://mq-admin:8086
+      REPORT_URL: http://report:8084
+      AUDIT_URL: http://audit:8085
     depends_on:
       - orders
       - catalog
       - mq-admin
+      - report
+      - audit
     restart: unless-stopped
 
   orders:
@@ -90,15 +94,35 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ---------------- Servicios en construcción ----------------
+  # Suscriptores de orders.events (topic): cada uno con su cola, reintentos y DLQ
   report:
     build: ../../ms-pedidos360-report
     container_name: pedidos360-report
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     restart: unless-stopped
 
   audit:
     build: ../../ms-pedidos360-audit
     container_name: pedidos360-audit
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-pedidos360}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-pedidos360}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
