@@ -139,6 +139,6 @@ aws ec2 authorize-security-group-ingress --group-id <SG_EC2> --protocol tcp --po
 
 ## Autores
 
-Germán Maraboli & Camila Vera
+Germán Marabolí, Sebastián Velez & Camila Vera
 
 Proyecto Pedidos360 · DSY1107 Desarrollo Cloud Native I · Duoc UC
